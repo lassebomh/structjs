@@ -164,7 +164,6 @@ interface Vector<Cap extends number, T> extends Iterable<T> {
   length: number;
   readonly capacity: Cap;
   readonly toJSON: () => Array<T>;
-
   [x: number]: T;
 }
 
@@ -172,19 +171,18 @@ export function array<Len extends number, T extends Type<any>>(
   length: Len,
   type: T
 ): Type<FixedArray<Len, ValueOf<T>>> {
-  const elementValues: BufferView<ValueOf<T>>[] = new Array(length);
+  const elementViews: BufferView<ValueOf<T>>[] = new Array(length);
 
   for (let i = 0; i < length; i++) {
-    elementValues[i] = type.createView();
+    elementViews[i] = type.createView();
   }
 
   const proxy = new Proxy(
     {
       length: length,
       *[Symbol.iterator]() {
-        for (let i = 0; i < elementValues.length; i++) {
-          const elementValue = elementValues[i];
-          yield elementValue.get();
+        for (const elementView of elementViews) {
+          yield elementView.get();
         }
       },
       toJSON: () => [...proxy],
@@ -194,17 +192,24 @@ export function array<Len extends number, T extends Type<any>>(
         if (prop in target) {
           return target[prop as keyof typeof target];
         }
-        const index = Number(prop);
-        assert(Number.isFinite(index) && index >= 0 && index < length);
-        const elementValue = elementValues[index];
+        let index = Number(prop);
+        assert(Number.isFinite(index));
+        if (index < 0) index += length;
+        assert(index >= -length && index < length);
+        const elementValue = elementViews[index];
         return elementValue.get();
       },
       set(target, prop, value) {
-        const index = Number(prop);
-        assert(Number.isFinite(index) && index >= 0 && index < length);
-        const elementValue = elementValues[index];
+        let index = Number(prop);
+        assert(Number.isFinite(index));
+        if (index < 0) index += length;
+        assert(index >= -length && index < length);
+        const elementValue = elementViews[index];
         elementValue.set(value);
         return true;
+      },
+      deleteProperty(target, prop) {
+        fail("Cannot delete an element from an array");
       },
     }
   );
@@ -215,15 +220,15 @@ export function array<Len extends number, T extends Type<any>>(
     createView() {
       return {
         bind(buffer, offset = 0) {
-          for (let i = 0; i < elementValues.length; i++) {
-            const elementValue = elementValues[i];
+          for (let i = 0; i < elementViews.length; i++) {
+            const elementValue = elementViews[i];
             elementValue.bind(buffer, offset + type.size * i);
           }
         },
         get: () => proxy,
         set: (value) => {
           for (let i = 0; i < length; i++) {
-            const elementValue = elementValues[i];
+            const elementValue = elementViews[i];
             elementValue.set(value[i]);
           }
         },
@@ -248,9 +253,8 @@ export function vector<Len extends number, T extends Type<any>>(capacity: Len, t
       length: 0, // placeholder
       capacity: capacity,
       *[Symbol.iterator]() {
-        for (let i = 0; i < lengthView.get(); i++) {
-          const elementValue = elementViews[i];
-          yield elementValue.get();
+        for (const elementView of elementViews.slice(0, lengthView.get())) {
+          yield elementView.get();
         }
       },
       toJSON: () => [...proxy],
