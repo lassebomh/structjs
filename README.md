@@ -1,4 +1,6 @@
-With at least NodeJS v22, run with `node --watch ./example.ts`
+Run example with `node --watch ./example.ts` (node v22+).
+
+Binary format is compatible with WebGPU.
 
 ```ts
 import { struct, f32, u32, vec2, array } from "./lib.ts";
