@@ -23,7 +23,7 @@ const playersView = Players.createView();
 // `get` returns a proxy that will forward reads/writes to the buffer we'll bind later.
 const players = playersView.get();
 
-// Create a buffer. Has to at least be the size of the type.
+// Create a buffer. Has to be at least be the size of the type.
 const buffer = new ArrayBuffer(Players.size);
 
 // Bind the view to the buffer. This will make the proxy usable.
@@ -39,7 +39,9 @@ firstPlayer.position.x += 10;
 
 firstPlayer.health = { max: 100, value: 100 };
 
-// This will copy the firstPlayer to index 3, not override it with a duplicate reference.
+// This will copy the firstPlayer to index 3.
+// This is different from the usual JS behavior where
+// the same object reference will be duplicated into both indicies.
 players[3] = firstPlayer;
 
 players[3].health.value += 123;
