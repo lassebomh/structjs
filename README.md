@@ -3,7 +3,7 @@ Run example with `node --watch ./example.ts` (node v22+).
 Binary format is compatible with WebGPU.
 
 ```ts
-import { struct, f32, u32, vec2, array } from "./lib.ts";
+import { struct, array, f32, u32, vec2 } from "./lib.ts";
 
 const Health = struct({
   value: u32,

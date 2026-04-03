@@ -4,6 +4,71 @@ function assert(value: any): asserts value {
   }
 }
 
+export interface Type<T> {
+  size: number;
+  alignment: number;
+  createView: () => BufferView<T>;
+}
+
+export interface BufferView<T> {
+  bind: (buffer: ArrayBuffer, offset?: number) => void;
+  /**
+   * @description A view is
+   */
+  get: () => T;
+  /**
+   * @description A view is
+   */
+  set: (value: T) => void;
+}
+
+type ValueOf<T extends Type<any>> = T extends Type<infer R> ? R : never;
+
+export const f32: Type<number> = {
+  alignment: 4,
+  size: 4,
+  createView() {
+    let dataView: DataView;
+    return {
+      bind(buffer, offset = 0) {
+        dataView = new DataView(buffer, offset);
+      },
+      get: () => dataView.getFloat32(0, true),
+      set: (value) => dataView.setFloat32(0, value, true),
+    };
+  },
+};
+
+export const u32: Type<number> = {
+  alignment: 4,
+  size: 4,
+  createView() {
+    let dataView: DataView;
+    return {
+      bind(buffer, offset = 0) {
+        dataView = new DataView(buffer, offset);
+      },
+      get: () => dataView.getUint32(0, true),
+      set: (value) => dataView.setUint32(0, value, true),
+    };
+  },
+};
+
+export const i32: Type<number> = {
+  alignment: 4,
+  size: 4,
+  createView() {
+    let dataView!: DataView;
+    return {
+      bind(buffer, offset = 0) {
+        dataView = new DataView(buffer, offset);
+      },
+      get: () => dataView.getInt32(0, true),
+      set: (value) => dataView.setInt32(0, value, true),
+    };
+  },
+};
+
 export function struct<T extends { [K in string]: Type<any> }>(fields: T): Type<{ [K in keyof T]: ValueOf<T[K]> }> {
   const fieldsNames = Object.keys(fields);
   const fieldsTypes = Object.values(fields);
@@ -156,55 +221,6 @@ export function array<L extends number, T extends Type<any>>(length: L, type: T)
   };
 }
 
-export const f32: Type<number> = {
-  alignment: 4,
-  size: 4,
-  createView() {
-    let dataView: DataView;
-    return {
-      bind(buffer, offset = 0) {
-        dataView = new DataView(buffer, offset);
-      },
-      get: () => dataView.getFloat32(0, true),
-      set: (value) => dataView.setFloat32(0, value, true),
-    };
-  },
-};
-
-export const u32: Type<number> = {
-  alignment: 4,
-  size: 4,
-  createView() {
-    let dataView: DataView;
-    return {
-      bind(buffer, offset = 0) {
-        dataView = new DataView(buffer, offset);
-      },
-      get: () => dataView.getUint32(0, true),
-      set: (value) => dataView.setUint32(0, value, true),
-    };
-  },
-};
-
-export const i32: Type<number> = {
-  alignment: 4,
-  size: 4,
-  createView() {
-    let dataView!: DataView;
-    return {
-      bind(buffer, offset = 0) {
-        dataView = new DataView(buffer, offset);
-      },
-      get: () => dataView.getInt32(0, true),
-      set: (value) => dataView.setInt32(0, value, true),
-    };
-  },
-};
-
-export type f32 = Type<number>;
-export type u32 = Type<number>;
-export type i32 = Type<number>;
-
 export function vec2(type: Type<number>) {
   return struct({
     x: type,
@@ -226,23 +242,3 @@ export function vec4(type: Type<number>) {
     w: type,
   });
 }
-
-export interface Type<T> {
-  size: number;
-  alignment: number;
-  createView: () => BufferView<T>;
-}
-
-interface BufferView<T> {
-  bind: (buffer: ArrayBuffer, offset?: number) => void;
-  /**
-   * @description A view is
-   */
-  get: () => T;
-  /**
-   * @description A view is
-   */
-  set: (value: T) => void;
-}
-
-export type ValueOf<T extends Type<any>> = T extends Type<infer R> ? R : never;
