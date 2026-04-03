@@ -3,6 +3,9 @@ function assert(value: any): asserts value {
     throw new Error("Assertion failed");
   }
 }
+function fail(msg?: string): never {
+  throw new Error(msg ?? "Assertion failed");
+}
 
 export interface Type<T> {
   size: number;
@@ -118,7 +121,6 @@ export function struct<T extends { [K in string]: Type<any> }>(fields: T): Type<
             if (prop in target) {
               return target[prop as keyof typeof target];
             }
-
             assert(prop in fields);
             const fieldView = fieldViews[prop as keyof T];
             return fieldView.get();
@@ -142,7 +144,6 @@ export function struct<T extends { [K in string]: Type<any> }>(fields: T): Type<
         },
         get: () => proxy as { [K in keyof T]: ValueOf<T[K]> },
         set(value) {
-          assert(fieldViews);
           for (const key in fields) {
             const fieldView = fieldViews[key];
             const newValue = value[key];
@@ -154,13 +155,23 @@ export function struct<T extends { [K in string]: Type<any> }>(fields: T): Type<
   };
 }
 
-interface FixedArray<L extends number, T> extends Iterable<T> {
-  readonly length: L;
+interface FixedArray<Len extends number, T> extends Iterable<T> {
+  readonly length: Len;
   readonly toJSON: () => Array<T>;
   [x: number]: T;
 }
+interface Vector<Cap extends number, T> extends Iterable<T> {
+  length: number;
+  readonly capacity: Cap;
+  readonly toJSON: () => Array<T>;
 
-export function array<L extends number, T extends Type<any>>(length: L, type: T): Type<FixedArray<L, ValueOf<T>>> {
+  [x: number]: T;
+}
+
+export function array<Len extends number, T extends Type<any>>(
+  length: Len,
+  type: T
+): Type<FixedArray<Len, ValueOf<T>>> {
   const elementValues: BufferView<ValueOf<T>>[] = new Array(length);
 
   for (let i = 0; i < length; i++) {
@@ -209,10 +220,113 @@ export function array<L extends number, T extends Type<any>>(length: L, type: T)
             elementValue.bind(buffer, offset + type.size * i);
           }
         },
-        get: () => proxy as FixedArray<L, ValueOf<T>>,
+        get: () => proxy,
         set: (value) => {
           for (let i = 0; i < length; i++) {
             const elementValue = elementValues[i];
+            elementValue.set(value[i]);
+          }
+        },
+      };
+    },
+  };
+}
+export function vector<Len extends number, T extends Type<any>>(capacity: Len, type: T): Type<Vector<Len, ValueOf<T>>> {
+  const elementViews: BufferView<ValueOf<T>>[] = new Array(capacity);
+
+  for (let i = 0; i < capacity; i++) {
+    elementViews[i] = type.createView();
+  }
+
+  const lengthType = u32;
+  const lengthView = lengthType.createView();
+
+  let elementsBytes!: Uint8Array;
+
+  const proxy = new Proxy(
+    {
+      length: 0, // placeholder
+      capacity: capacity,
+      *[Symbol.iterator]() {
+        for (let i = 0; i < lengthView.get(); i++) {
+          const elementValue = elementViews[i];
+          yield elementValue.get();
+        }
+      },
+      toJSON: () => [...proxy],
+    },
+    {
+      get(target, prop) {
+        if (prop === "length") {
+          return lengthView.get();
+        }
+        if (prop in target) {
+          return target[prop as keyof typeof target];
+        }
+        let index = Number(prop);
+        assert(Number.isFinite(index));
+        const length = lengthView.get();
+        if (index < 0) index += length;
+        assert(index >= -length && index < length);
+        const elementValue = elementViews[index];
+        return elementValue.get();
+      },
+      set(target, prop, value) {
+        if (prop === "length") {
+          assert(Number.isFinite(value));
+          assert(value >= 0 && value <= capacity);
+          const currentLength = lengthView.get();
+          if (value < currentLength) {
+            elementsBytes.fill(0, value * type.size, currentLength * type.size);
+          }
+          lengthView.set(value);
+          return true;
+        }
+        let index = Number(prop);
+        assert(Number.isFinite(index));
+        const length = lengthView.get();
+        if (index < 0) index += length;
+        assert(index >= -length && index < length);
+        const elementValue = elementViews[index];
+        elementValue.set(value);
+        return true;
+      },
+      deleteProperty(target, prop) {
+        let index = Number(prop);
+        assert(Number.isFinite(index));
+        const length = lengthView.get();
+        if (index < 0) index += length;
+        assert(index >= -length && index < length);
+
+        if (index !== length - 1) {
+          elementsBytes.set(elementsBytes.slice((index + 1) * type.size, length * type.size), index * type.size);
+        }
+
+        elementsBytes.fill(0, (length - 1) * type.size, length * type.size);
+        lengthView.set(length - 1);
+
+        return true;
+      },
+    }
+  );
+
+  return {
+    alignment: Math.max(lengthType.alignment, type.alignment),
+    size: lengthType.size + type.size * capacity,
+    createView() {
+      return {
+        bind(buffer, offset = 0) {
+          lengthView.bind(buffer, offset);
+          for (let i = 0; i < capacity; i++) {
+            const elementView = elementViews[i];
+            elementView.bind(buffer, offset + lengthType.size + type.size * i);
+          }
+          elementsBytes = new Uint8Array(buffer, offset + lengthType.size, type.size * capacity);
+        },
+        get: () => proxy,
+        set: (value) => {
+          for (let i = 0; i < capacity; i++) {
+            const elementValue = elementViews[i];
             elementValue.set(value[i]);
           }
         },
