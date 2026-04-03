@@ -1,3 +1,6 @@
+With at least NodeJS v22, run with `node --watch ./example.ts`
+
+```ts
 import { struct, f32, u32, vec2, array } from "./lib.ts";
 
 const Health = struct({
@@ -55,3 +58,4 @@ players[2].health.max = 13;
 firstPlayer.position.y = 10;
 
 console.log(JSON.stringify(players, undefined, 2));
+```
