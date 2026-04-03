@@ -31,41 +31,51 @@ export function struct<T extends { [K in string]: Type<any> }>(fields: T): Type<
     alignment,
     size,
     createView() {
-      let fieldViews: { [K in keyof T]: ValueView<T[K]> } = {} as any;
+      let fieldViews: { [K in keyof T]: BufferView<T[K]> } = {} as any;
 
       for (const fieldName in fields) {
         const fieldType = fields[fieldName];
         fieldViews[fieldName] = fieldType.createView();
       }
 
-      const fieldValues: { [K in keyof T]: ValueOf<T[K]> } = {} as any;
+      const proxy = new Proxy(
+        {
+          toJSON: () => {
+            const obj: Record<any, any> = {};
+            for (const fieldName in fields) {
+              obj[fieldName] = fieldViews[fieldName].get();
+            }
+            return obj;
+          },
+        },
+        {
+          get(target, prop) {
+            if (prop in target) {
+              return target[prop as keyof typeof target];
+            }
 
-      for (const fieldName in fields) {
-        const fieldView = fieldViews[fieldName];
-
-        Object.defineProperty(fieldValues, fieldName, {
-          get() {
+            assert(prop in fields);
+            const fieldView = fieldViews[prop as keyof T];
             return fieldView.get();
           },
-          set(value) {
+          set(target, prop, value) {
+            assert(prop in fields);
+            const fieldView = fieldViews[prop as keyof T];
             fieldView.set(value);
+            return true;
           },
-          configurable: true,
-          enumerable: true,
-        });
-      }
+        }
+      );
 
       return {
-        bind(buffer, offset) {
+        bind(buffer, offset = 0) {
           for (const fieldName in fieldViews) {
             const fieldView = fieldViews[fieldName];
             const fieldOffset = fieldOffsets[fieldName];
             fieldView.bind(buffer, offset + fieldOffset);
           }
         },
-        get() {
-          return fieldValues;
-        },
+        get: () => proxy as { [K in keyof T]: ValueOf<T[K]> },
         set(value) {
           assert(fieldViews);
           for (const key in fields) {
@@ -79,30 +89,34 @@ export function struct<T extends { [K in string]: Type<any> }>(fields: T): Type<
   };
 }
 
-type TypeArray<T extends Type<any>> = Type<{ [K in number]: ValueOf<T> } & { length: number } & Iterable<ValueOf<T>>>;
+interface FixedArray<L extends number, T> extends Iterable<T> {
+  readonly length: L;
+  readonly toJSON: () => Array<T>;
+  [x: number]: T;
+}
 
-export function array<T extends Type<any>>(length: number, type: T): TypeArray<T> {
-  const elementValues: ValueView<ValueOf<T>>[] = new Array(length);
+export function array<L extends number, T extends Type<any>>(length: L, type: T): Type<FixedArray<L, ValueOf<T>>> {
+  const elementValues: BufferView<ValueOf<T>>[] = new Array(length);
 
   for (let i = 0; i < length; i++) {
     elementValues[i] = type.createView();
   }
 
   const proxy = new Proxy(
-    {},
+    {
+      length: length,
+      *[Symbol.iterator]() {
+        for (let i = 0; i < elementValues.length; i++) {
+          const elementValue = elementValues[i];
+          yield elementValue.get();
+        }
+      },
+      toJSON: () => [...proxy],
+    },
     {
       get(target, prop) {
-        if (prop === "length") {
-          return length;
-        }
-        if (prop === Symbol.iterator) {
-          return function* () {
-            for (let i = 0; i < elementValues.length; i++) {
-              const elementValue = elementValues[i];
-              yield elementValue.get();
-            }
-            return;
-          };
+        if (prop in target) {
+          return target[prop as keyof typeof target];
         }
         const index = Number(prop);
         assert(Number.isFinite(index) && index >= 0 && index < length);
@@ -119,21 +133,18 @@ export function array<T extends Type<any>>(length: number, type: T): TypeArray<T
     }
   );
 
-  console.log(length, type.size);
-
   return {
     alignment: type.size,
     size: length * type.size,
     createView() {
       return {
-        bind(buffer, offset) {
+        bind(buffer, offset = 0) {
           for (let i = 0; i < elementValues.length; i++) {
             const elementValue = elementValues[i];
             elementValue.bind(buffer, offset + type.size * i);
           }
         },
-
-        get: () => proxy as ValueOf<TypeArray<T>>,
+        get: () => proxy as FixedArray<L, ValueOf<T>>,
         set: (value) => {
           for (let i = 0; i < length; i++) {
             const elementValue = elementValues[i];
@@ -151,7 +162,7 @@ export const f32: Type<number> = {
   createView() {
     let dataView: DataView;
     return {
-      bind(buffer, offset) {
+      bind(buffer, offset = 0) {
         dataView = new DataView(buffer, offset);
       },
       get: () => dataView.getFloat32(0, true),
@@ -166,7 +177,7 @@ export const u32: Type<number> = {
   createView() {
     let dataView: DataView;
     return {
-      bind(buffer, offset) {
+      bind(buffer, offset = 0) {
         dataView = new DataView(buffer, offset);
       },
       get: () => dataView.getUint32(0, true),
@@ -181,7 +192,7 @@ export const i32: Type<number> = {
   createView() {
     let dataView!: DataView;
     return {
-      bind(buffer, offset) {
+      bind(buffer, offset = 0) {
         dataView = new DataView(buffer, offset);
       },
       get: () => dataView.getInt32(0, true),
@@ -219,12 +230,18 @@ export function vec4(type: Type<number>) {
 export interface Type<T> {
   size: number;
   alignment: number;
-  createView: () => ValueView<T>;
+  createView: () => BufferView<T>;
 }
 
-interface ValueView<T> {
-  bind: (buffer: ArrayBuffer, offset: number) => void;
+interface BufferView<T> {
+  bind: (buffer: ArrayBuffer, offset?: number) => void;
+  /**
+   * @description A view is
+   */
   get: () => T;
+  /**
+   * @description A view is
+   */
   set: (value: T) => void;
 }
 
