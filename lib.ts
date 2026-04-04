@@ -135,12 +135,8 @@ export function struct<T extends { [K in string]: Type<any> }>(fields: T): Type<
         Object.defineProperty(obj, fieldName, {
           configurable: false,
           enumerable: true,
-          get() {
-            return fieldView.get();
-          },
-          set(value) {
-            fieldView.set(value);
-          },
+          get: fieldView.get,
+          set: fieldView.set,
         });
       }
 
@@ -223,6 +219,16 @@ export function array<Len extends number, T extends Type<any>>(
       get: elementView.get,
       set: elementView.set,
     });
+
+    if (i > 0) {
+      const negativeElementView = elementViews[length - i];
+      Object.defineProperty(obj, -i, {
+        configurable: false,
+        enumerable: false,
+        get: negativeElementView.get,
+        set: negativeElementView.set,
+      });
+    }
   }
 
   Object.seal(obj);
@@ -323,6 +329,29 @@ export function vector<Len extends number, T extends Type<any>>(capacity: Len, t
           fail(`Update index out of bounds (index=${i}, length=${length})`);
         }
         elementView.set(value);
+      },
+    });
+
+    const ni = -(i + 1);
+
+    Object.defineProperty(obj, ni, {
+      configurable: false,
+      enumerable: false,
+      get() {
+        const length = lengthView.get();
+        console.log();
+
+        if (length + ni < 0) {
+          fail(`Index out of bounds (index=${ni}, length=${length})`);
+        }
+        return elementViews[length + ni].get();
+      },
+      set(value) {
+        const length = lengthView.get();
+        if (length + ni < 0) {
+          fail(`Update index out of bounds (index=${ni}, length=${length})`);
+        }
+        return elementViews[length + ni].set(value);
       },
     });
   }
