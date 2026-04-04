@@ -339,8 +339,6 @@ export function vector<Len extends number, T extends Type<any>>(capacity: Len, t
       enumerable: false,
       get() {
         const length = lengthView.get();
-        console.log();
-
         if (length + ni < 0) {
           fail(`Index out of bounds (index=${ni}, length=${length})`);
         }

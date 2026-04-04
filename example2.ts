@@ -1,6 +1,6 @@
 import { struct, vector, u32 } from "./lib.ts";
 
-const Inputs = vector(3, struct({ value: u32 }));
+const Inputs = vector(4, struct({ value: u32 }));
 
 const inputsView = Inputs.createView();
 const inputs = inputsView.get();
@@ -12,10 +12,11 @@ inputsView.bind(buffer);
 inputs.length = inputs.capacity;
 
 for (let i = 0; i < inputs.length; i++) {
-  inputs[i].value = 0x11111111 * (i + 1);
+  inputs[i].value = 0xff;
 }
 
-inputs[1] = inputs[-1];
+// swap and pop
+inputs[2] = inputs[-1];
 inputs.length--;
 
 console.log(JSON.stringify(inputs));
