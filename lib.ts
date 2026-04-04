@@ -71,6 +71,20 @@ export const i32: Type<number> = {
     };
   },
 };
+export const bool: Type<boolean> = {
+  alignment: 1,
+  size: 1,
+  createView() {
+    let dataView!: DataView;
+    return {
+      bind(buffer, offset = 0) {
+        dataView = new DataView(buffer, offset);
+      },
+      get: () => dataView.getInt8(0) !== 0,
+      set: (value) => dataView.setInt8(0, value ? 0xff : 0x00),
+    };
+  },
+};
 
 export function struct<T extends { [K in string]: Type<any> }>(fields: T): Type<{ [K in keyof T]: ValueOf<T[K]> }> {
   const fieldsNames = Object.keys(fields);
@@ -106,33 +120,31 @@ export function struct<T extends { [K in string]: Type<any> }>(fields: T): Type<
         fieldViews[fieldName] = fieldType.createView();
       }
 
-      const proxy = new Proxy(
-        {
-          toJSON: () => {
-            const obj: Record<any, any> = {};
-            for (const fieldName in fields) {
-              obj[fieldName] = fieldViews[fieldName].get();
-            }
-            return obj;
-          },
-        },
-        {
-          get(target, prop) {
-            if (prop in target) {
-              return target[prop as keyof typeof target];
-            }
-            assert(prop in fields);
-            const fieldView = fieldViews[prop as keyof T];
+      const obj = {} as { [K in keyof T]: ValueOf<T[K]> };
+
+      Object.defineProperty(obj, "toJSON", {
+        configurable: false,
+        writable: false,
+        enumerable: false,
+        value: () => ({ ...obj }),
+      });
+
+      for (const fieldName in fields) {
+        const fieldView = fieldViews[fieldName];
+
+        Object.defineProperty(obj, fieldName, {
+          configurable: false,
+          enumerable: true,
+          get() {
             return fieldView.get();
           },
-          set(target, prop, value) {
-            assert(prop in fields);
-            const fieldView = fieldViews[prop as keyof T];
+          set(value) {
             fieldView.set(value);
-            return true;
           },
-        }
-      );
+        });
+      }
+
+      Object.seal(obj);
 
       return {
         bind(buffer, offset = 0) {
@@ -142,7 +154,7 @@ export function struct<T extends { [K in string]: Type<any> }>(fields: T): Type<
             fieldView.bind(buffer, offset + fieldOffset);
           }
         },
-        get: () => proxy as { [K in keyof T]: ValueOf<T[K]> },
+        get: () => obj,
         set(value) {
           for (const key in fields) {
             const fieldView = fieldViews[key];
@@ -157,13 +169,11 @@ export function struct<T extends { [K in string]: Type<any> }>(fields: T): Type<
 
 interface FixedArray<Len extends number, T> extends Iterable<T> {
   readonly length: Len;
-  readonly toJSON: () => Array<T>;
   [x: number]: T;
 }
 interface Vector<Cap extends number, T> extends Iterable<T> {
   length: number;
   readonly capacity: Cap;
-  readonly toJSON: () => Array<T>;
   [x: number]: T;
 }
 
@@ -177,42 +187,45 @@ export function array<Len extends number, T extends Type<any>>(
     elementViews[i] = type.createView();
   }
 
-  const proxy = new Proxy(
-    {
-      length: length,
-      *[Symbol.iterator]() {
+  const obj = {} as FixedArray<Len, ValueOf<T>>;
+
+  Object.defineProperties(obj, {
+    length: {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: length,
+    },
+    toJSON: {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: () => [...obj],
+    },
+    [Symbol.iterator]: {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: function* () {
         for (const elementView of elementViews) {
           yield elementView.get();
         }
       },
-      toJSON: () => [...proxy],
     },
-    {
-      get(target, prop) {
-        if (prop in target) {
-          return target[prop as keyof typeof target];
-        }
-        let index = Number(prop);
-        assert(Number.isFinite(index));
-        if (index < 0) index += length;
-        assert(index >= -length && index < length);
-        const elementValue = elementViews[index];
-        return elementValue.get();
-      },
-      set(target, prop, value) {
-        let index = Number(prop);
-        assert(Number.isFinite(index));
-        if (index < 0) index += length;
-        assert(index >= -length && index < length);
-        const elementValue = elementViews[index];
-        elementValue.set(value);
-        return true;
-      },
-      deleteProperty(target, prop) {
-        fail("Cannot delete an element from an array");
-      },
-    }
-  );
+  });
+
+  for (let i = 0; i < length; i++) {
+    const elementView = elementViews[i];
+
+    Object.defineProperty(obj, i, {
+      configurable: false,
+      enumerable: true,
+      get: elementView.get,
+      set: elementView.set,
+    });
+  }
+
+  Object.seal(obj);
 
   return {
     alignment: type.size,
@@ -225,7 +238,7 @@ export function array<Len extends number, T extends Type<any>>(
             elementValue.bind(buffer, offset + type.size * i);
           }
         },
-        get: () => proxy,
+        get: () => obj,
         set: (value) => {
           for (let i = 0; i < length; i++) {
             const elementValue = elementViews[i];
@@ -236,6 +249,7 @@ export function array<Len extends number, T extends Type<any>>(
     },
   };
 }
+
 export function vector<Len extends number, T extends Type<any>>(capacity: Len, type: T): Type<Vector<Len, ValueOf<T>>> {
   const elementViews: BufferView<ValueOf<T>>[] = new Array(capacity);
 
@@ -248,71 +262,72 @@ export function vector<Len extends number, T extends Type<any>>(capacity: Len, t
 
   let elementsBytes!: Uint8Array;
 
-  const proxy = new Proxy(
-    {
-      length: 0, // placeholder
-      capacity: capacity,
-      *[Symbol.iterator]() {
+  const obj = {} as Vector<Len, ValueOf<T>>;
+
+  Object.defineProperties(obj, {
+    capacity: {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: capacity,
+    },
+    length: {
+      configurable: false,
+      enumerable: false,
+      get: lengthView.get,
+      set(value) {
+        if (!(Number.isFinite(value) && value >= 0 && value <= capacity)) {
+          fail(`Tried updating length to ${value} which is not between [0, ${capacity}]`);
+        }
+        const length = lengthView.get();
+        if (value < length) {
+          elementsBytes.fill(0, value * type.size, length * type.size);
+        }
+        lengthView.set(value);
+      },
+    },
+    toJSON: {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: () => [...obj],
+    },
+    [Symbol.iterator]: {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: function* () {
         for (const elementView of elementViews.slice(0, lengthView.get())) {
           yield elementView.get();
         }
       },
-      toJSON: () => [...proxy],
     },
-    {
-      get(target, prop) {
-        if (prop === "length") {
-          return lengthView.get();
-        }
-        if (prop in target) {
-          return target[prop as keyof typeof target];
-        }
-        let index = Number(prop);
-        assert(Number.isFinite(index));
-        const length = lengthView.get();
-        if (index < 0) index += length;
-        assert(index >= -length && index < length);
-        const elementValue = elementViews[index];
-        return elementValue.get();
-      },
-      set(target, prop, value) {
-        if (prop === "length") {
-          assert(Number.isFinite(value));
-          assert(value >= 0 && value <= capacity);
-          const currentLength = lengthView.get();
-          if (value < currentLength) {
-            elementsBytes.fill(0, value * type.size, currentLength * type.size);
-          }
-          lengthView.set(value);
-          return true;
-        }
-        let index = Number(prop);
-        assert(Number.isFinite(index));
-        const length = lengthView.get();
-        if (index < 0) index += length;
-        assert(index >= -length && index < length);
-        const elementValue = elementViews[index];
-        elementValue.set(value);
-        return true;
-      },
-      deleteProperty(target, prop) {
-        let index = Number(prop);
-        assert(Number.isFinite(index));
-        const length = lengthView.get();
-        if (index < 0) index += length;
-        assert(index >= -length && index < length);
+  });
 
-        if (index !== length - 1) {
-          elementsBytes.set(elementsBytes.slice((index + 1) * type.size, length * type.size), index * type.size);
+  for (let i = 0; i < capacity; i++) {
+    const elementView = elementViews[i];
+
+    Object.defineProperty(obj, i, {
+      configurable: false,
+      enumerable: true,
+      get() {
+        const length = lengthView.get();
+        if (!(i < length)) {
+          fail(`Index out of bounds (index=${i}, length=${length})`);
         }
-
-        elementsBytes.fill(0, (length - 1) * type.size, length * type.size);
-        lengthView.set(length - 1);
-
-        return true;
+        return elementView.get();
       },
-    }
-  );
+      set(value) {
+        const length = lengthView.get();
+        if (!(i < length)) {
+          fail(`Update index out of bounds (index=${i}, length=${length})`);
+        }
+        elementView.set(value);
+      },
+    });
+  }
+
+  Object.seal(obj);
 
   return {
     alignment: Math.max(lengthType.alignment, type.alignment),
@@ -327,7 +342,7 @@ export function vector<Len extends number, T extends Type<any>>(capacity: Len, t
           }
           elementsBytes = new Uint8Array(buffer, offset + lengthType.size, type.size * capacity);
         },
-        get: () => proxy,
+        get: () => obj,
         set: (value) => {
           for (let i = 0; i < capacity; i++) {
             const elementValue = elementViews[i];
@@ -338,7 +353,6 @@ export function vector<Len extends number, T extends Type<any>>(capacity: Len, t
     },
   };
 }
-
 export function vec2(type: Type<number>) {
   return struct({
     x: type,
