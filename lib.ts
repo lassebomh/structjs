@@ -71,6 +71,22 @@ export const i32: Type<number> = {
     };
   },
 };
+
+export const f64: Type<number> = {
+  alignment: 8,
+  size: 8,
+  createView() {
+    let dataView: DataView;
+    return {
+      bind(buffer, offset = 0) {
+        dataView = new DataView(buffer, offset);
+      },
+      get: () => dataView.getFloat64(0, true),
+      set: (value) => dataView.setFloat64(0, value, true),
+    };
+  },
+};
+
 export const bool: Type<boolean> = {
   alignment: 1,
   size: 1,
@@ -85,6 +101,65 @@ export const bool: Type<boolean> = {
     };
   },
 };
+
+export function flags<const T extends string>(...flags: T[]): Type<{ [K in T]: boolean }> {
+  const size = Math.ceil(flags.length / 32) * 4;
+  const alignment = size;
+
+  return {
+    alignment,
+    size,
+    createView() {
+      const obj = {} as Record<T, boolean>;
+
+      let values!: Uint8Array;
+
+      Object.defineProperty(obj, "toJSON", {
+        configurable: false,
+        enumerable: false,
+        value: () => ({ ...obj }),
+      });
+
+      for (let i = 0; i < flags.length; i++) {
+        const flag = flags[i];
+
+        const byte = Math.floor(i / 8);
+
+        const bit = 1 << i % 8;
+        const mask = 0xff ^ bit;
+
+        console.log(flag, i, mask.toString(2), bit.toString(2), byte);
+
+        Object.defineProperty(obj, flag, {
+          configurable: false,
+          enumerable: true,
+          get() {
+            return (values[byte] & bit) != 0;
+          },
+          set(value) {
+            let newByte = values[byte] & mask;
+            if (value) newByte ||= bit;
+            values[byte] = newByte;
+          },
+        });
+      }
+
+      return {
+        bind(buffer, offset) {
+          values = new Uint8Array(buffer, offset, size);
+        },
+        get() {
+          return obj;
+        },
+        set(value) {
+          for (const key in value) {
+            obj[key] = value[key];
+          }
+        },
+      };
+    },
+  };
+}
 
 export function struct<T extends { [K in string]: Type<any> }>(fields: T): Type<{ [K in keyof T]: ValueOf<T[K]> }> {
   const fieldsNames = Object.keys(fields);
@@ -177,66 +252,65 @@ export function array<Len extends number, T extends Type<any>>(
   length: Len,
   type: T
 ): Type<FixedArray<Len, ValueOf<T>>> {
-  const elementViews: BufferView<ValueOf<T>>[] = new Array(length);
-
-  for (let i = 0; i < length; i++) {
-    elementViews[i] = type.createView();
-  }
-
-  const obj = {} as FixedArray<Len, ValueOf<T>>;
-
-  Object.defineProperties(obj, {
-    length: {
-      configurable: false,
-      enumerable: false,
-      writable: false,
-      value: length,
-    },
-    toJSON: {
-      configurable: false,
-      enumerable: false,
-      writable: false,
-      value: () => [...obj],
-    },
-    [Symbol.iterator]: {
-      configurable: false,
-      enumerable: false,
-      writable: false,
-      value: function* () {
-        for (const elementView of elementViews) {
-          yield elementView.get();
-        }
-      },
-    },
-  });
-
-  for (let i = 0; i < length; i++) {
-    const elementView = elementViews[i];
-
-    Object.defineProperty(obj, i, {
-      configurable: false,
-      enumerable: true,
-      get: elementView.get,
-      set: elementView.set,
-    });
-
-    if (i > 0) {
-      const negativeElementView = elementViews[length - i];
-      Object.defineProperty(obj, -i, {
-        configurable: false,
-        enumerable: false,
-        get: negativeElementView.get,
-        set: negativeElementView.set,
-      });
-    }
-  }
-
-  Object.seal(obj);
-
   return {
     alignment: type.size,
     size: length * type.size,
     createView() {
+      const elementViews: BufferView<ValueOf<T>>[] = new Array(length);
+
+      for (let i = 0; i < length; i++) {
+        elementViews[i] = type.createView();
+      }
+
+      const obj = {} as FixedArray<Len, ValueOf<T>>;
+
+      Object.defineProperties(obj, {
+        length: {
+          configurable: false,
+          enumerable: false,
+          writable: false,
+          value: length,
+        },
+        toJSON: {
+          configurable: false,
+          enumerable: false,
+          writable: false,
+          value: () => [...obj],
+        },
+        [Symbol.iterator]: {
+          configurable: false,
+          enumerable: false,
+          writable: false,
+          value: function* () {
+            for (const elementView of elementViews) {
+              yield elementView.get();
+            }
+          },
+        },
+      });
+
+      for (let i = 0; i < length; i++) {
+        const elementView = elementViews[i];
+
+        Object.defineProperty(obj, i, {
+          configurable: false,
+          enumerable: true,
+          get: elementView.get,
+          set: elementView.set,
+        });
+
+        if (i > 0) {
+          const negativeElementView = elementViews[length - i];
+          Object.defineProperty(obj, -i, {
+            configurable: false,
+            enumerable: false,
+            get: negativeElementView.get,
+            set: negativeElementView.set,
+          });
+        }
+      }
+
+      Object.seal(obj);
       return {
         bind(buffer, offset = 0) {
           for (let i = 0; i < elementViews.length; i++) {
