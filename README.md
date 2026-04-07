@@ -17,17 +17,16 @@ const Player = struct({
 
 const Players = array(4, Player);
 
-// Create a view for the type.
-const playersView = Players.createView();
-
-// `get` returns a proxy that will forward reads/writes to the buffer we'll bind later.
-const players = playersView.get();
-
 // Create a buffer. Has to be at least be the size of the type.
 const buffer = new ArrayBuffer(Players.size);
 
-// Bind the view to the buffer. This will make the proxy usable.
+// Create a view for the type and bind it to the buffer.
+const playersView = Players.createView();
+
 playersView.bind(buffer);
+
+// `get` returns a object that will forward reads/writes to the buffer.
+const players = playersView.get();
 
 for (const player of players) {
   player.position.x += 1;
@@ -45,21 +44,6 @@ firstPlayer.health = { max: 100, value: 100 };
 players[3] = firstPlayer;
 
 players[3].health.value += 123;
-
-console.log(JSON.stringify(players, undefined, 2));
-
-// We can also create another buffer, and bind the view to it.
-// This time we'll create a buffer thats way larger than what we need.
-const buffer2 = new ArrayBuffer(1000);
-
-// And we'll bind it at an arbitrary offset
-playersView.bind(buffer2, 103);
-
-// All our original proxies still work, but now it will read/write to the new buffer at the provided offset.
-
-players[2].health.max = 13;
-
-firstPlayer.position.y = 10;
 
 console.log(JSON.stringify(players, undefined, 2));
 ```
