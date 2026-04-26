@@ -1,4 +1,4 @@
-import { union, u32, struct } from "../lib.ts";
+import { union, u32, struct, f32 } from "../lib.ts";
 
 const Result = union({ error: u32, value: struct({ foo: u32, bar: u32 }) });
 
@@ -15,3 +15,15 @@ console.log(result.value);
 
 console.log(JSON.stringify(result));
 console.log(buffer);
+
+const MessageHeader = struct({
+  from: u32,
+  to: u32,
+  data: union({
+    foo: u32,
+    baz: f32,
+  }),
+});
+
+const messageHeaderView = MessageHeader.createView();
+const messageHeader = messageHeaderView.get();

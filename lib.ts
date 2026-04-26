@@ -481,28 +481,28 @@ type DiscriminatedUnion<T> = {
 }[keyof T];
 
 export function union<T extends { [K in string]: Type<any> }>(
-  fields: T,
+  variants: T,
 ): Type<DiscriminatedUnion<{ [K in keyof T]: ValueOf<T[K]> }>> {
   const tagType = u32;
 
-  const fieldsNames = Object.keys(fields);
-  const fieldsTypes = Object.values(fields);
+  const variantsNames = Object.keys(variants);
+  const variantsTypes = Object.values(variants);
 
-  const fieldSize = Math.max(...fieldsTypes.map((f) => f.size));
-  const alignment = Math.max(...fieldsTypes.map((f) => f.alignment));
+  const variantSize = Math.max(...variantsTypes.map((f) => f.size));
+  const alignment = Math.max(...variantsTypes.map((f) => f.alignment));
 
   return {
     alignment,
-    size: tagType.size + fieldSize,
+    size: tagType.size + variantSize,
     createView() {
       const tagView = tagType.createView();
-      let fieldBytes!: Uint8Array;
+      let variantBytes!: Uint8Array;
 
-      let fieldViews: { [K in keyof T]: BufferView<T[K]> } = {} as any;
+      let variantViews: { [K in keyof T]: BufferView<T[K]> } = {} as any;
 
-      for (const fieldName in fields) {
-        const fieldType = fields[fieldName];
-        fieldViews[fieldName] = fieldType.createView();
+      for (const variantName in variants) {
+        const variantType = variants[variantName];
+        variantViews[variantName] = variantType.createView();
       }
 
       const obj = {} as DiscriminatedUnion<{ [K in keyof T]: ValueOf<T[K]> }>;
@@ -514,24 +514,24 @@ export function union<T extends { [K in string]: Type<any> }>(
         value: () => ({ ...obj }),
       });
 
-      for (let i = 0; i < fieldsNames.length; i++) {
-        const fieldName = fieldsNames[i];
-        const fieldView = fieldViews[fieldName];
+      for (let i = 0; i < variantsNames.length; i++) {
+        const variantName = variantsNames[i];
+        const variantView = variantViews[variantName];
 
-        Object.defineProperty(obj, fieldName, {
+        Object.defineProperty(obj, variantName, {
           configurable: false,
           enumerable: true,
           get: () => {
             if (tagView.get() === i) {
-              return fieldView.get();
+              return variantView.get();
             } else {
               return undefined;
             }
           },
           set: (newValue) => {
             tagView.set(i);
-            fieldBytes.fill(0);
-            fieldView.set(newValue);
+            variantBytes.fill(0);
+            variantView.set(newValue);
           },
         });
       }
@@ -541,22 +541,22 @@ export function union<T extends { [K in string]: Type<any> }>(
       return {
         bind(buffer, offset = 0) {
           tagView.bind(buffer, offset);
-          fieldBytes = new Uint8Array(buffer, offset + tagType.size, fieldSize);
-          for (const fieldName in fieldViews) {
-            const fieldView = fieldViews[fieldName];
-            fieldView.bind(buffer, offset + tagType.size);
+          variantBytes = new Uint8Array(buffer, offset + tagType.size, variantSize);
+          for (const variantName in variantViews) {
+            const variantView = variantViews[variantName];
+            variantView.bind(buffer, offset + tagType.size);
           }
         },
         get: () => obj,
         set(value) {
-          fieldBytes.fill(0);
-          for (let i = 0; i < fieldsNames.length; i++) {
-            const fieldName = fieldsNames[i];
-            const fieldValue = value[fieldName];
-            if (fieldValue === undefined) continue;
+          variantBytes.fill(0);
+          for (let i = 0; i < variantsNames.length; i++) {
+            const variantName = variantsNames[i];
+            const variantValue = value[variantName];
+            if (variantValue === undefined) continue;
             tagView.set(i);
-            const fieldView = fieldViews[fieldName];
-            fieldView.set(fieldValue);
+            const variantView = variantViews[variantName];
+            variantView.set(variantValue);
           }
         },
       };
