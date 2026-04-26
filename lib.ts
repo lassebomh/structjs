@@ -25,7 +25,7 @@ export interface BufferView<T> {
   set: (value: T) => void;
 }
 
-type ValueOf<T extends Type<any>> = T extends Type<infer R> ? R : never;
+export type ValueOf<T extends Type<any>> = T extends Type<infer R> ? R : never;
 
 export const f32: Type<number> = {
   alignment: 4,
@@ -125,7 +125,7 @@ export function flags<const T extends string>(...flags: T[]): Type<{ [K in T]: b
 
         const byte = Math.floor(i / 8);
 
-        const bit = 1 << i % 8;
+        const bit = 1 << (i % 8);
         const mask = 0xff ^ bit;
 
         console.log(flag, i, mask.toString(2), bit.toString(2), byte);
@@ -250,7 +250,7 @@ interface Vector<Cap extends number, T> extends Iterable<T> {
 
 export function array<Len extends number, T extends Type<any>>(
   length: Len,
-  type: T
+  type: T,
 ): Type<FixedArray<Len, ValueOf<T>>> {
   return {
     alignment: type.size,
@@ -331,109 +331,109 @@ export function array<Len extends number, T extends Type<any>>(
 }
 
 export function vector<Len extends number, T extends Type<any>>(capacity: Len, type: T): Type<Vector<Len, ValueOf<T>>> {
-  const elementViews: BufferView<ValueOf<T>>[] = new Array(capacity);
-
-  for (let i = 0; i < capacity; i++) {
-    elementViews[i] = type.createView();
-  }
-
   const lengthType = u32;
-  const lengthView = lengthType.createView();
-
-  let elementsBytes!: Uint8Array;
-
-  const obj = {} as Vector<Len, ValueOf<T>>;
-
-  Object.defineProperties(obj, {
-    capacity: {
-      configurable: false,
-      enumerable: false,
-      writable: false,
-      value: capacity,
-    },
-    length: {
-      configurable: false,
-      enumerable: false,
-      get: lengthView.get,
-      set(value) {
-        if (!(Number.isFinite(value) && value >= 0 && value <= capacity)) {
-          fail(`Tried updating length to ${value} which is not between [0, ${capacity}]`);
-        }
-        const length = lengthView.get();
-        if (value < length) {
-          elementsBytes.fill(0, value * type.size, length * type.size);
-        }
-        lengthView.set(value);
-      },
-    },
-    toJSON: {
-      configurable: false,
-      enumerable: false,
-      writable: false,
-      value: () => [...obj],
-    },
-    [Symbol.iterator]: {
-      configurable: false,
-      enumerable: false,
-      writable: false,
-      value: function* () {
-        for (const elementView of elementViews.slice(0, lengthView.get())) {
-          yield elementView.get();
-        }
-      },
-    },
-  });
-
-  for (let i = 0; i < capacity; i++) {
-    const elementView = elementViews[i];
-
-    Object.defineProperty(obj, i, {
-      configurable: false,
-      enumerable: true,
-      get() {
-        const length = lengthView.get();
-        if (!(i < length)) {
-          fail(`Index out of bounds (index=${i}, length=${length})`);
-        }
-        return elementView.get();
-      },
-      set(value) {
-        const length = lengthView.get();
-        if (!(i < length)) {
-          fail(`Update index out of bounds (index=${i}, length=${length})`);
-        }
-        elementView.set(value);
-      },
-    });
-
-    const ni = -(i + 1);
-
-    Object.defineProperty(obj, ni, {
-      configurable: false,
-      enumerable: false,
-      get() {
-        const length = lengthView.get();
-        if (length + ni < 0) {
-          fail(`Index out of bounds (index=${ni}, length=${length})`);
-        }
-        return elementViews[length + ni].get();
-      },
-      set(value) {
-        const length = lengthView.get();
-        if (length + ni < 0) {
-          fail(`Update index out of bounds (index=${ni}, length=${length})`);
-        }
-        return elementViews[length + ni].set(value);
-      },
-    });
-  }
-
-  Object.seal(obj);
 
   return {
     alignment: Math.max(lengthType.alignment, type.alignment),
     size: lengthType.size + type.size * capacity,
     createView() {
+      const elementViews: BufferView<ValueOf<T>>[] = new Array(capacity);
+
+      for (let i = 0; i < capacity; i++) {
+        elementViews[i] = type.createView();
+      }
+
+      const lengthView = lengthType.createView();
+
+      let elementsBytes!: Uint8Array;
+
+      const obj = {} as Vector<Len, ValueOf<T>>;
+
+      Object.defineProperties(obj, {
+        capacity: {
+          configurable: false,
+          enumerable: false,
+          writable: false,
+          value: capacity,
+        },
+        length: {
+          configurable: false,
+          enumerable: false,
+          get: lengthView.get,
+          set(value) {
+            if (!(Number.isFinite(value) && value >= 0 && value <= capacity)) {
+              fail(`Tried updating length to ${value} which is not between [0, ${capacity}]`);
+            }
+            const length = lengthView.get();
+            if (value < length) {
+              elementsBytes.fill(0, value * type.size, length * type.size);
+            }
+            lengthView.set(value);
+          },
+        },
+        toJSON: {
+          configurable: false,
+          enumerable: false,
+          writable: false,
+          value: () => [...obj],
+        },
+        [Symbol.iterator]: {
+          configurable: false,
+          enumerable: false,
+          writable: false,
+          value: function* () {
+            for (const elementView of elementViews.slice(0, lengthView.get())) {
+              yield elementView.get();
+            }
+          },
+        },
+      });
+
+      for (let i = 0; i < capacity; i++) {
+        const elementView = elementViews[i];
+
+        Object.defineProperty(obj, i, {
+          configurable: false,
+          enumerable: true,
+          get() {
+            const length = lengthView.get();
+            if (!(i < length)) {
+              fail(`Index out of bounds (index=${i}, length=${length})`);
+            }
+            return elementView.get();
+          },
+          set(value) {
+            const length = lengthView.get();
+            if (!(i < length)) {
+              fail(`Update index out of bounds (index=${i}, length=${length})`);
+            }
+            elementView.set(value);
+          },
+        });
+
+        const ni = -(i + 1);
+
+        Object.defineProperty(obj, ni, {
+          configurable: false,
+          enumerable: false,
+          get() {
+            const length = lengthView.get();
+            if (length + ni < 0) {
+              fail(`Index out of bounds (index=${ni}, length=${length})`);
+            }
+            return elementViews[length + ni].get();
+          },
+          set(value) {
+            const length = lengthView.get();
+            if (length + ni < 0) {
+              fail(`Update index out of bounds (index=${ni}, length=${length})`);
+            }
+            return elementViews[length + ni].set(value);
+          },
+        });
+      }
+
+      Object.seal(obj);
       return {
         bind(buffer, offset = 0) {
           lengthView.bind(buffer, offset);
@@ -474,4 +474,92 @@ export function vec4(type: Type<number>) {
     z: type,
     w: type,
   });
+}
+
+type DiscriminatedUnion<T> = {
+  [K in keyof T]: { [P in K]: T[K] } & { [P in Exclude<keyof T, K>]: undefined };
+}[keyof T];
+
+export function union<T extends { [K in string]: Type<any> }>(
+  fields: T,
+): Type<DiscriminatedUnion<{ [K in keyof T]: ValueOf<T[K]> }>> {
+  const tagType = u32;
+
+  const fieldsNames = Object.keys(fields);
+  const fieldsTypes = Object.values(fields);
+
+  const fieldSize = Math.max(...fieldsTypes.map((f) => f.size));
+  const alignment = Math.max(...fieldsTypes.map((f) => f.alignment));
+
+  return {
+    alignment,
+    size: tagType.size + fieldSize,
+    createView() {
+      const tagView = tagType.createView();
+      let fieldBytes!: Uint8Array;
+
+      let fieldViews: { [K in keyof T]: BufferView<T[K]> } = {} as any;
+
+      for (const fieldName in fields) {
+        const fieldType = fields[fieldName];
+        fieldViews[fieldName] = fieldType.createView();
+      }
+
+      const obj = {} as DiscriminatedUnion<{ [K in keyof T]: ValueOf<T[K]> }>;
+
+      Object.defineProperty(obj, "toJSON", {
+        configurable: false,
+        writable: false,
+        enumerable: false,
+        value: () => ({ ...obj }),
+      });
+
+      for (let i = 0; i < fieldsNames.length; i++) {
+        const fieldName = fieldsNames[i];
+        const fieldView = fieldViews[fieldName];
+
+        Object.defineProperty(obj, fieldName, {
+          configurable: false,
+          enumerable: true,
+          get: () => {
+            if (tagView.get() === i) {
+              return fieldView.get();
+            } else {
+              return undefined;
+            }
+          },
+          set: (newValue) => {
+            tagView.set(i);
+            fieldBytes.fill(0);
+            fieldView.set(newValue);
+          },
+        });
+      }
+
+      Object.seal(obj);
+
+      return {
+        bind(buffer, offset = 0) {
+          tagView.bind(buffer, offset);
+          fieldBytes = new Uint8Array(buffer, offset + tagType.size, fieldSize);
+          for (const fieldName in fieldViews) {
+            const fieldView = fieldViews[fieldName];
+            fieldView.bind(buffer, offset + tagType.size);
+          }
+        },
+        get: () => obj,
+        set(value) {
+          fieldBytes.fill(0);
+          for (let i = 0; i < fieldsNames.length; i++) {
+            const fieldName = fieldsNames[i];
+            const fieldValue = value[fieldName];
+            if (fieldValue === undefined) continue;
+            tagView.set(i);
+            const fieldView = fieldViews[fieldName];
+            fieldView.set(fieldValue);
+          }
+        },
+      };
+    },
+  };
 }

@@ -1,4 +1,4 @@
-import { struct, vector, u32 } from "./lib.ts";
+import { struct, vector, u32 } from "../lib.ts";
 
 const Inputs = vector(4, struct({ value: u32 }));
 

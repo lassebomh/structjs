@@ -1,4 +1,4 @@
-import { struct, array, f32, u32, vec2 } from "./lib.ts";
+import { struct, array, f32, u32, vec2 } from "../lib.ts";
 
 const Health = struct({
   value: u32,

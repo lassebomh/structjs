@@ -1,5 +1,3 @@
-Run example with `node --watch ./example.ts` (node v22+).
-
 Binary format is compatible with WebGPU.
 
 ```ts
